@@ -5,7 +5,7 @@ from .kubernetes_simulator import evaluate_configuration
 
 import sys
 if sys.version_info >= (3, 13):
-    raise RuntimeError("Python 3.13 no es compatible. Usa Python 3.10")
+    print("⚠️ Advertencia: Python 3.13 puede causar problemas")
 
 def evaluate_individual(individual, workload):
     """Evalúa una configuración individual"""
