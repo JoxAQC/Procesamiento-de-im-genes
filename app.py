@@ -1,6 +1,3 @@
-import subprocess
-import sys
-import os
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -15,12 +12,6 @@ from textblob import TextBlob
 import warnings
 warnings.filterwarnings('ignore')
 
-try:
-    import seaborn
-except ImportError:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements-app7.txt"])
-    os.execv(sys.executable, [sys.executable] + sys.argv)  # Reinicia el script
-
 # Configuración de la página
 st.set_page_config(page_title="Análisis de Sentimientos", page_icon="📊", layout="wide")
 st.title("📊 Análisis de Sentimientos con 2 Modelos NLP")
@@ -31,16 +22,14 @@ if 'df' not in st.session_state:
 if 'modelos_entrenados' not in st.session_state:
     st.session_state.modelos_entrenados = False
 
-# Función para cargar datos
+# Función para cargar datos con cache
+@st.cache_data
 def cargar_datos(archivo):
     try:
         df = pd.read_csv(archivo)
-        # Verificar columnas requeridas
         if 'review' not in df.columns or 'sentiment' not in df.columns:
             st.error("El archivo debe contener columnas llamadas 'review' y 'sentiment'")
             return None
-        
-        # Convertir sentimientos a numérico si es necesario
         if df['sentiment'].dtype == 'object':
             df['sentiment'] = df['sentiment'].map({
                 'positive': 1, 'Positive': 1, 'positivo': 1, 'Positivo': 1,
@@ -57,9 +46,9 @@ with st.sidebar:
     archivo = st.file_uploader("📂 Sube tu archivo CSV", type=["csv"])
     
     if archivo is not None:
-        st.session_state.df = cargar_datos(archivo)
+        with st.spinner("Cargando archivo..."):
+            st.session_state.df = cargar_datos(archivo)
     
-    # Mostrar opciones solo si hay datos cargados
     if st.session_state.df is not None:
         st.subheader("Parámetros del Modelo")
         test_size = st.slider("Tamaño del conjunto de prueba (%):", 10, 40, 30)
@@ -68,16 +57,12 @@ with st.sidebar:
         if st.button("🚀 Entrenar Modelos"):
             with st.spinner("Entrenando modelos..."):
                 try:
-                    # Preparar datos
                     df = st.session_state.df.copy()
-                    
-                    # Dividir datos
                     X = df['review']
                     y = df['sentiment']
                     X_train, X_test, y_train, y_test = train_test_split(
                         X, y, test_size=test_size/100, random_state=42)
                     
-                    # Modelo 1: Naive Bayes con TF-IDF
                     tfidf = TfidfVectorizer(max_features=max_features)
                     X_train_tfidf = tfidf.fit_transform(X_train)
                     X_test_tfidf = tfidf.transform(X_test)
@@ -86,14 +71,12 @@ with st.sidebar:
                     nb_model.fit(X_train_tfidf, y_train)
                     y_pred_nb = nb_model.predict(X_test_tfidf)
                     
-                    # Modelo 2: TextBlob
                     def get_sentiment_textblob(text):
                         analysis = TextBlob(text)
                         return 1 if analysis.sentiment.polarity > 0 else 0
                     
                     y_pred_tb = X_test.apply(get_sentiment_textblob)
                     
-                    # Guardar en session_state
                     st.session_state.modelos_entrenados = True
                     st.session_state.resultados = {
                         'X_test': X_test,
@@ -106,7 +89,6 @@ with st.sidebar:
                     }
                     
                     st.success("✅ Modelos entrenados exitosamente!")
-                    
                 except Exception as e:
                     st.error(f"Error durante el entrenamiento: {e}")
 
@@ -115,9 +97,7 @@ if st.session_state.df is not None:
     st.subheader("📝 Dataset Cargado")
     st.dataframe(st.session_state.df)
     
-    # Análisis exploratorio
     st.subheader("📈 Análisis Exploratorio")
-    
     col1, col2 = st.columns(2)
     with col1:
         st.markdown("### Distribución de Sentimientos")
@@ -128,8 +108,9 @@ if st.session_state.df is not None:
     
     with col2:
         st.markdown("### Longitud de las Reseñas")
+        if 'length' not in st.session_state.df.columns:
+            st.session_state.df['length'] = st.session_state.df['review'].apply(len)
         fig, ax = plt.subplots(figsize=(8, 5))
-        st.session_state.df['length'] = st.session_state.df['review'].apply(len)
         sns.histplot(data=st.session_state.df, x='length', hue='sentiment', bins=30, ax=ax)
         st.pyplot(fig)
 
@@ -138,8 +119,6 @@ if st.session_state.modelos_entrenados:
     resultados = st.session_state.resultados
     
     st.subheader("📊 Resultados de los Modelos")
-    
-    # Pestañas para cada modelo
     tab1, tab2 = st.tabs(["Naive Bayes", "TextBlob"])
     
     with tab1:
@@ -147,7 +126,6 @@ if st.session_state.modelos_entrenados:
         st.write(f"**Accuracy:** {accuracy_score(resultados['y_test'], resultados['y_pred_nb']):.4f}")
         st.text(classification_report(resultados['y_test'], resultados['y_pred_nb'], 
                target_names=['Negativo', 'Positivo']))
-        
         fig, ax = plt.subplots(figsize=(6, 4))
         sns.heatmap(confusion_matrix(resultados['y_test'], resultados['y_pred_nb']), 
                     annot=True, fmt='d', cmap='Blues',
@@ -161,7 +139,6 @@ if st.session_state.modelos_entrenados:
         st.write(f"**Accuracy:** {accuracy_score(resultados['y_test'], resultados['y_pred_tb']):.4f}")
         st.text(classification_report(resultados['y_test'], resultados['y_pred_tb'], 
                target_names=['Negativo', 'Positivo']))
-        
         fig, ax = plt.subplots(figsize=(6, 4))
         sns.heatmap(confusion_matrix(resultados['y_test'], resultados['y_pred_tb']), 
                     annot=True, fmt='d', cmap='Greens',
@@ -169,35 +146,30 @@ if st.session_state.modelos_entrenados:
                     yticklabels=['Negativo', 'Positivo'])
         plt.title('Matriz de Confusión - TextBlob')
         st.pyplot(fig)
-    
-    # Análisis de texto nuevo
+
     st.subheader("🔮 Analizar Nuevo Texto")
-    
     with st.form("analizar_texto"):
         nuevo_texto = st.text_area("Ingresa el texto a analizar:", 
                                  "This movie was fantastic! The acting was great.")
-        
         submitted = st.form_submit_button("Predecir Sentimiento")
         
         if submitted:
-            st.markdown("### Resultados del Análisis")
-            
-            # Naive Bayes
-            nb_pred = resultados['nb_model'].predict(
-                resultados['tfidf'].transform([nuevo_texto]))[0]
-            st.write(f"**Naive Bayes:** {'Positivo' if nb_pred == 1 else 'Negativo'}")
-            
-            # TextBlob
-            tb_pred = resultados['get_sentiment_textblob'](nuevo_texto)
-            st.write(f"**TextBlob:** {'Positivo' if tb_pred == 1 else 'Negativo'}")
-            
-            # Visualización de WordCloud
-            st.markdown("### Nube de Palabras del Texto")
-            wordcloud = WordCloud(width=800, height=400).generate(nuevo_texto)
-            fig, ax = plt.subplots(figsize=(10, 5))
-            ax.imshow(wordcloud, interpolation='bilinear')
-            ax.axis('off')
-            st.pyplot(fig)
+            if nuevo_texto.strip() == "":
+                st.warning("⚠️ Ingresa un texto válido para analizar.")
+            else:
+                st.markdown("### Resultados del Análisis")
+                nb_pred = resultados['nb_model'].predict(
+                    resultados['tfidf'].transform([nuevo_texto]))[0]
+                st.write(f"**Naive Bayes:** {'Positivo' if nb_pred == 1 else 'Negativo'}")
+                tb_pred = resultados['get_sentiment_textblob'](nuevo_texto)
+                st.write(f"**TextBlob:** {'Positivo' if tb_pred == 1 else 'Negativo'}")
+                
+                st.markdown("### Nube de Palabras del Texto")
+                wordcloud = WordCloud(width=800, height=400, max_words=200).generate(nuevo_texto)
+                fig, ax = plt.subplots(figsize=(10, 5))
+                ax.imshow(wordcloud, interpolation='bilinear')
+                ax.axis('off')
+                st.pyplot(fig)
 
 # Mensaje si no hay datos cargados
 elif st.session_state.df is None:
