@@ -1,3 +1,6 @@
+import subprocess
+import sys
+import os
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -11,6 +14,12 @@ from sklearn.metrics import accuracy_score, classification_report, confusion_mat
 from textblob import TextBlob
 import warnings
 warnings.filterwarnings('ignore')
+
+try:
+    import seaborn
+except ImportError:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements-app7.txt"])
+    os.execv(sys.executable, [sys.executable] + sys.argv)  # Reinicia el script
 
 # Configuración de la página
 st.set_page_config(page_title="Análisis de Sentimientos", page_icon="📊", layout="wide")
