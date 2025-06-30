@@ -7,6 +7,7 @@ from wordcloud import WordCloud
 from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.naive_bayes import MultinomialNB
+from sklearn.linear_model import LogisticRegression  # Nuevo modelo
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
 from textblob import TextBlob
 import warnings
@@ -14,7 +15,7 @@ warnings.filterwarnings('ignore')
 
 # Configuración de la página
 st.set_page_config(page_title="Análisis de Sentimientos", page_icon="📊", layout="wide")
-st.title("📊 Análisis de Sentimientos con 2 Modelos NLP")
+st.title("📊 Análisis de Sentimientos con 3 Modelos NLP")
 
 # Inicializar variables en session_state
 if 'df' not in st.session_state:
@@ -67,10 +68,17 @@ with st.sidebar:
                     X_train_tfidf = tfidf.fit_transform(X_train)
                     X_test_tfidf = tfidf.transform(X_test)
                     
+                    # Modelo Naive Bayes
                     nb_model = MultinomialNB()
                     nb_model.fit(X_train_tfidf, y_train)
                     y_pred_nb = nb_model.predict(X_test_tfidf)
                     
+                    # Modelo Regresión Logística (nuevo)
+                    lr_model = LogisticRegression(max_iter=1000, random_state=42)
+                    lr_model.fit(X_train_tfidf, y_train)
+                    y_pred_lr = lr_model.predict(X_test_tfidf)
+                    
+                    # Modelo TextBlob
                     def get_sentiment_textblob(text):
                         analysis = TextBlob(text)
                         return 1 if analysis.sentiment.polarity > 0 else 0
@@ -82,9 +90,11 @@ with st.sidebar:
                         'X_test': X_test,
                         'y_test': y_test,
                         'y_pred_nb': y_pred_nb,
+                        'y_pred_lr': y_pred_lr,  # Nuevo
                         'y_pred_tb': y_pred_tb,
                         'get_sentiment_textblob': get_sentiment_textblob,
                         'nb_model': nb_model,
+                        'lr_model': lr_model,  # Nuevo
                         'tfidf': tfidf
                     }
                     
@@ -119,7 +129,7 @@ if st.session_state.modelos_entrenados:
     resultados = st.session_state.resultados
     
     st.subheader("📊 Resultados de los Modelos")
-    tab1, tab2 = st.tabs(["Naive Bayes", "TextBlob"])
+    tab1, tab2, tab3 = st.tabs(["Naive Bayes", "Regresión Logística", "TextBlob"])  # Nuevo tab
     
     with tab1:
         st.markdown("### Naive Bayes con TF-IDF")
@@ -134,7 +144,20 @@ if st.session_state.modelos_entrenados:
         plt.title('Matriz de Confusión - Naive Bayes')
         st.pyplot(fig)
     
-    with tab2:
+    with tab2:  # Nuevo tab para Regresión Logística
+        st.markdown("### Regresión Logística con TF-IDF")
+        st.write(f"**Accuracy:** {accuracy_score(resultados['y_test'], resultados['y_pred_lr']):.4f}")
+        st.text(classification_report(resultados['y_test'], resultados['y_pred_lr'], 
+               target_names=['Negativo', 'Positivo']))
+        fig, ax = plt.subplots(figsize=(6, 4))
+        sns.heatmap(confusion_matrix(resultados['y_test'], resultados['y_pred_lr']), 
+                    annot=True, fmt='d', cmap='Reds',
+                    xticklabels=['Negativo', 'Positivo'], 
+                    yticklabels=['Negativo', 'Positivo'])
+        plt.title('Matriz de Confusión - Regresión Logística')
+        st.pyplot(fig)
+    
+    with tab3:
         st.markdown("### TextBlob (Análisis basado en reglas)")
         st.write(f"**Accuracy:** {accuracy_score(resultados['y_test'], resultados['y_pred_tb']):.4f}")
         st.text(classification_report(resultados['y_test'], resultados['y_pred_tb'], 
@@ -161,6 +184,11 @@ if st.session_state.modelos_entrenados:
                 nb_pred = resultados['nb_model'].predict(
                     resultados['tfidf'].transform([nuevo_texto]))[0]
                 st.write(f"**Naive Bayes:** {'Positivo' if nb_pred == 1 else 'Negativo'}")
+                
+                lr_pred = resultados['lr_model'].predict(  # Nuevo
+                    resultados['tfidf'].transform([nuevo_texto]))[0]
+                st.write(f"**Regresión Logística:** {'Positivo' if lr_pred == 1 else 'Negativo'}")
+                
                 tb_pred = resultados['get_sentiment_textblob'](nuevo_texto)
                 st.write(f"**TextBlob:** {'Positivo' if tb_pred == 1 else 'Negativo'}")
                 
