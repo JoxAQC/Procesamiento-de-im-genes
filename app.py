@@ -1,139 +1,195 @@
 import streamlit as st
-import numpy as np
 import pandas as pd
-import plotly.express as px
-from utils.genetic_algorithm import run_genetic_algorithm
-from utils.kubernetes_simulator import evaluate_configuration
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from wordcloud import WordCloud
+from sklearn.model_selection import train_test_split
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+from textblob import TextBlob
+import warnings
+warnings.filterwarnings('ignore')
 
-st.set_page_config(page_title="Optimizador de Contenedores", layout="wide")
+# Configuración de la página
+st.set_page_config(page_title="Análisis de Sentimientos", page_icon="📊", layout="wide")
+st.title("📊 Análisis de Sentimientos con 2 Modelos NLP")
 
-st.title("Optimización de Configuraciones de Contenedores")
-st.markdown("""
-Esta aplicación utiliza un Algoritmo Genético para encontrar la mejor configuración de recursos 
-para tus contenedores en Kubernetes, balanceando costo y performance.
-""")
+# Inicializar variables en session_state
+if 'df' not in st.session_state:
+    st.session_state.df = None
+if 'modelos_entrenados' not in st.session_state:
+    st.session_state.modelos_entrenados = False
 
-# Sidebar con parámetros
+# Función para cargar datos
+def cargar_datos(archivo):
+    try:
+        df = pd.read_csv(archivo)
+        # Verificar columnas requeridas
+        if 'review' not in df.columns or 'sentiment' not in df.columns:
+            st.error("El archivo debe contener columnas llamadas 'review' y 'sentiment'")
+            return None
+        
+        # Convertir sentimientos a numérico si es necesario
+        if df['sentiment'].dtype == 'object':
+            df['sentiment'] = df['sentiment'].map({
+                'positive': 1, 'Positive': 1, 'positivo': 1, 'Positivo': 1,
+                'negative': 0, 'Negative': 0, 'negativo': 0, 'Negativo': 0
+            })
+        return df
+    except Exception as e:
+        st.error(f"Error al cargar el archivo: {str(e)}")
+        return None
+
+# Sidebar - Carga de archivo
 with st.sidebar:
-    st.header("Parámetros del Algoritmo Genético")
-    population_size = st.slider("Tamaño de población", 10, 100, 30)
-    generations = st.slider("Número de generaciones", 5, 100, 20)
-    crossover_prob = st.slider("Probabilidad de crossover", 0.1, 1.0, 0.7)
-    mutation_prob = st.slider("Probabilidad de mutación", 0.01, 0.5, 0.1)
+    st.header("Configuración")
+    archivo = st.file_uploader("📂 Sube tu archivo CSV", type=["csv"])
     
-    st.header("Restricciones del SLA")
-    # Sidebar con parámetros más realistas para gran escala
-    min_cpu = st.slider("CPU mínima (cores)", 1.0, 64.0, 8.0)  # Default: 8 cores
-    max_cpu = st.slider("CPU máxima (cores)", 1.0, 64.0, 32.0)  # Default: 32 cores
-    min_memory = st.slider("Memoria mínima (GB)", 1.0, 128.0, 16.0)  # Default: 16GB
-    max_memory = st.slider("Memoria máxima (GB)", 1.0, 128.0, 64.0)  # Default: 64GB
-    min_replicas = st.slider("Mínimo de réplicas", 1, 100, 10)  # Default: 10
-    max_replicas = st.slider("Máximo de réplicas", 1, 100, 50)  # Default: 50
+    if archivo is not None:
+        st.session_state.df = cargar_datos(archivo)
     
-    workload = st.selectbox("Escenario de carga", ["Baja", "Media", "Alta"])
+    # Mostrar opciones solo si hay datos cargados
+    if st.session_state.df is not None:
+        st.subheader("Parámetros del Modelo")
+        test_size = st.slider("Tamaño del conjunto de prueba (%):", 10, 40, 30)
+        max_features = st.slider("Máximo de características TF-IDF:", 500, 5000, 2000, step=500)
+        
+        if st.button("🚀 Entrenar Modelos"):
+            with st.spinner("Entrenando modelos..."):
+                try:
+                    # Preparar datos
+                    df = st.session_state.df.copy()
+                    
+                    # Dividir datos
+                    X = df['review']
+                    y = df['sentiment']
+                    X_train, X_test, y_train, y_test = train_test_split(
+                        X, y, test_size=test_size/100, random_state=42)
+                    
+                    # Modelo 1: Naive Bayes con TF-IDF
+                    tfidf = TfidfVectorizer(max_features=max_features)
+                    X_train_tfidf = tfidf.fit_transform(X_train)
+                    X_test_tfidf = tfidf.transform(X_test)
+                    
+                    nb_model = MultinomialNB()
+                    nb_model.fit(X_train_tfidf, y_train)
+                    y_pred_nb = nb_model.predict(X_test_tfidf)
+                    
+                    # Modelo 2: TextBlob
+                    def get_sentiment_textblob(text):
+                        analysis = TextBlob(text)
+                        return 1 if analysis.sentiment.polarity > 0 else 0
+                    
+                    y_pred_tb = X_test.apply(get_sentiment_textblob)
+                    
+                    # Guardar en session_state
+                    st.session_state.modelos_entrenados = True
+                    st.session_state.resultados = {
+                        'X_test': X_test,
+                        'y_test': y_test,
+                        'y_pred_nb': y_pred_nb,
+                        'y_pred_tb': y_pred_tb,
+                        'get_sentiment_textblob': get_sentiment_textblob,
+                        'nb_model': nb_model,
+                        'tfidf': tfidf
+                    }
+                    
+                    st.success("✅ Modelos entrenados exitosamente!")
+                    
+                except Exception as e:
+                    st.error(f"Error durante el entrenamiento: {e}")
 
-# Ejecutar optimización
-if st.button("Ejecutar Optimización"):
-    with st.spinner("Optimizando configuraciones..."):
-        best_config, history = run_genetic_algorithm(
-            population_size=population_size,
-            generations=generations,
-            crossover_prob=crossover_prob,
-            mutation_prob=mutation_prob,
-            cpu_bounds=(min_cpu, max_cpu),
-            memory_bounds=(min_memory, max_memory),
-            replicas_bounds=(min_replicas, max_replicas),
-            workload=workload
-        )
+# Mostrar dataset si está cargado
+if st.session_state.df is not None:
+    st.subheader("📝 Dataset Cargado")
+    st.dataframe(st.session_state.df)
     
-    st.success("¡Optimización completada!")
+    # Análisis exploratorio
+    st.subheader("📈 Análisis Exploratorio")
     
-    # Mostrar mejor configuración
-    st.subheader("Mejor configuración encontrada")
-    col1, col2, col3 = st.columns(3)
-    col1.metric("CPU (cores)", f"{best_config['cpu']:.1f}")
-    col2.metric("Memoria (GB)", f"{best_config['memory']:.1f}")
-    col3.metric("Réplicas", best_config['replicas'])
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("### Distribución de Sentimientos")
+        fig, ax = plt.subplots(figsize=(8, 5))
+        st.session_state.df['sentiment'].value_counts().plot(kind='bar', ax=ax)
+        ax.set_xticklabels(['Negativo', 'Positivo'], rotation=0)
+        st.pyplot(fig)
+    
+    with col2:
+        st.markdown("### Longitud de las Reseñas")
+        fig, ax = plt.subplots(figsize=(8, 5))
+        st.session_state.df['length'] = st.session_state.df['review'].apply(len)
+        sns.histplot(data=st.session_state.df, x='length', hue='sentiment', bins=30, ax=ax)
+        st.pyplot(fig)
 
-    # Gráfico de evolución por generación
-    st.subheader("Evolución del Algoritmo Genético")
-    df_history = pd.DataFrame(history)  # 'history' ya lo devuelve run_genetic_algorithm()
+# Mostrar resultados si los modelos están entrenados
+if st.session_state.modelos_entrenados:
+    resultados = st.session_state.resultados
+    
+    st.subheader("📊 Resultados de los Modelos")
+    
+    # Pestañas para cada modelo
+    tab1, tab2 = st.tabs(["Naive Bayes", "TextBlob"])
+    
+    with tab1:
+        st.markdown("### Naive Bayes con TF-IDF")
+        st.write(f"**Accuracy:** {accuracy_score(resultados['y_test'], resultados['y_pred_nb']):.4f}")
+        st.text(classification_report(resultados['y_test'], resultados['y_pred_nb'], 
+               target_names=['Negativo', 'Positivo']))
+        
+        fig, ax = plt.subplots(figsize=(6, 4))
+        sns.heatmap(confusion_matrix(resultados['y_test'], resultados['y_pred_nb']), 
+                    annot=True, fmt='d', cmap='Blues',
+                    xticklabels=['Negativo', 'Positivo'], 
+                    yticklabels=['Negativo', 'Positivo'])
+        plt.title('Matriz de Confusión - Naive Bayes')
+        st.pyplot(fig)
+    
+    with tab2:
+        st.markdown("### TextBlob (Análisis basado en reglas)")
+        st.write(f"**Accuracy:** {accuracy_score(resultados['y_test'], resultados['y_pred_tb']):.4f}")
+        st.text(classification_report(resultados['y_test'], resultados['y_pred_tb'], 
+               target_names=['Negativo', 'Positivo']))
+        
+        fig, ax = plt.subplots(figsize=(6, 4))
+        sns.heatmap(confusion_matrix(resultados['y_test'], resultados['y_pred_tb']), 
+                    annot=True, fmt='d', cmap='Greens',
+                    xticklabels=['Negativo', 'Positivo'], 
+                    yticklabels=['Negativo', 'Positivo'])
+        plt.title('Matriz de Confusión - TextBlob')
+        st.pyplot(fig)
+    
+    # Análisis de texto nuevo
+    st.subheader("🔮 Analizar Nuevo Texto")
+    
+    with st.form("analizar_texto"):
+        nuevo_texto = st.text_area("Ingresa el texto a analizar:", 
+                                 "This movie was fantastic! The acting was great.")
+        
+        submitted = st.form_submit_button("Predecir Sentimiento")
+        
+        if submitted:
+            st.markdown("### Resultados del Análisis")
+            
+            # Naive Bayes
+            nb_pred = resultados['nb_model'].predict(
+                resultados['tfidf'].transform([nuevo_texto]))[0]
+            st.write(f"**Naive Bayes:** {'Positivo' if nb_pred == 1 else 'Negativo'}")
+            
+            # TextBlob
+            tb_pred = resultados['get_sentiment_textblob'](nuevo_texto)
+            st.write(f"**TextBlob:** {'Positivo' if tb_pred == 1 else 'Negativo'}")
+            
+            # Visualización de WordCloud
+            st.markdown("### Nube de Palabras del Texto")
+            wordcloud = WordCloud(width=800, height=400).generate(nuevo_texto)
+            fig, ax = plt.subplots(figsize=(10, 5))
+            ax.imshow(wordcloud, interpolation='bilinear')
+            ax.axis('off')
+            st.pyplot(fig)
 
-    # Gráfico de fitness (adaptación) por generación
-    fig_fitness = px.line(
-        df_history, 
-        x='generation', 
-        y=['best_fitness', 'avg_fitness', 'worst_fitness'],
-        labels={'value': 'Fitness (menor es mejor)', 'generation': 'Generación'},
-        title="Evolución del Fitness por Generación"
-    )
-    st.plotly_chart(fig_fitness, use_container_width=True)
-
-    # Tabla con datos de cada generación
-    st.write("Detalles por generación:")
-    st.dataframe(df_history)
-    
-    # Mostrar métricas
-    cost = evaluate_configuration(best_config)['cost']
-    performance = evaluate_configuration(best_config)['performance']
-    col1.metric("Costo estimado", f"${cost:,.1f}K/mes") 
-    col2.metric("Performance", f"{performance*100:.1f}%")
-    
-    # Gráfico de evolución
-    st.subheader("Evolución del Fitness")
-    df_history = pd.DataFrame(history)
-    fig = px.line(df_history, x='generation', y='best_fitness', 
-                  title="Mejor Fitness por Generación")
-    st.plotly_chart(fig, use_container_width=True)
-    
-    # Comparación de configuraciones
-    st.subheader("Comparación de Configuraciones")
-    
-    # Configuración aleatoria para comparar
-    random_config = {
-        'cpu': np.random.uniform(min_cpu, max_cpu),
-        'memory': np.random.uniform(min_memory, max_memory),
-        'replicas': np.random.randint(min_replicas, max_replicas+1)
-    }
-    
-    # Evaluar ambas configuraciones
-    best_eval = evaluate_configuration(best_config)
-    random_eval = evaluate_configuration(random_config)
-    
-    # Crear DataFrame para comparación
-    compare_df = pd.DataFrame({
-        'Configuración': ['Optimizada', 'Aleatoria'],
-        'Costo': [best_eval['cost'], random_eval['cost']],
-        'Performance': [best_eval['performance'], random_eval['performance']],
-        'CPU': [best_config['cpu'], random_config['cpu']],
-        'Memoria': [best_config['memory'], random_config['memory']],
-        'Réplicas': [best_config['replicas'], random_config['replicas']]
-    })
-    
-    st.dataframe(compare_df)
-    
-    # Gráfico de comparación
-    fig = px.bar(compare_df, x='Configuración', y=['Costo', 'Performance'],
-                 barmode='group', title="Comparación: Optimizada vs Aleatoria")
-    st.plotly_chart(fig, use_container_width=True)
-
-# Sección de explicación
-with st.expander("¿Cómo funciona esta optimización?"):
-    st.markdown("""
-    ### Simulador de Kubernetes
-    - Simulamos diferentes configuraciones de recursos para contenedores
-    - Parámetros ajustables: CPU, memoria y número de réplicas
-    - Evaluamos cada configuración basada en costo y performance
-    
-    ### Algoritmo Genético
-    - **Población inicial**: Configuraciones aleatorias dentro de los límites
-    - **Selección**: Mantenemos las configuraciones con mejor fitness
-    - **Crossover**: Combinamos configuraciones prometedoras
-    - **Mutación**: Pequeños cambios aleatorios para exploración
-    - **Evaluación**: Calculamos fitness basado en costo y SLA
-    
-    ### Función de Fitness
-    - Minimizar: `Costo total (CPU + Memoria + Réplicas)`
-    - Maximizar: `Performance (cumplimiento del SLA)`
-    - Penalizamos configuraciones que no cumplen con los requisitos mínimos
-    """)
+# Mensaje si no hay datos cargados
+elif st.session_state.df is None:
+    st.info("ℹ️ Por favor, carga un archivo CSV con columnas 'review' y 'sentiment' para comenzar.")
