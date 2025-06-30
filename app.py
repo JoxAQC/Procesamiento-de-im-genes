@@ -76,7 +76,7 @@ with st.sidebar:
         test_size = st.slider("Tamaño del conjunto de prueba (%):", 10, 40, 20)  # % más pequeño
         max_features = st.slider("Máximo de características TF-IDF:", 500, 3000, 1000, step=500)  # Menos features
         
-        if st.button("⚡ Entrenar Modelos (Modo Rápido)"):
+        if st.button("⚡ Entrenar Modelo"):
             with st.spinner("Entrenando modelos con configuración rápida..."):
                 try:
                     df = st.session_state.df.copy()
@@ -141,7 +141,7 @@ if st.session_state.df is not None:
     st.write(f"Total de registros: {len(st.session_state.df)}")
     st.dataframe(st.session_state.df.head(3))  # Mostrar solo las primeras filas
     
-    st.subheader("📈 Análisis Rápido")
+    st.subheader("📈 Análisis")
     col1, col2 = st.columns(2)
     with col1:
         st.markdown("### Distribución de Sentimientos")
@@ -162,7 +162,7 @@ if st.session_state.df is not None:
 if st.session_state.modelos_entrenados:
     resultados = st.session_state.resultados
     
-    st.subheader("⚡ Resultados Rápidos")
+    st.subheader("⚡ Resultados")
     tab1, tab2, tab3 = st.tabs(["Naive Bayes", "Regresión Logística", "TextBlob"])
     
     with tab1:
